@@ -66,7 +66,25 @@ def inject_globals():
         u  = db.execute("SELECT balance FROM users WHERE id=?", (session["user_id"],)).fetchone()
         if u: user_balance = u["balance"]
         session["balance"] = user_balance
-    return {"site_name": Config.SITE_NAME, "user_balance": user_balance}
+
+    # ── Banner uchun aktiv yangiliklarni olish ──
+    active_banners = []
+    try:
+        db = get_db()
+        rows = db.execute(
+            "SELECT id, title, description, image_url, link_url, button_text "
+            "FROM news WHERE is_active=1 AND show_banner=1 "
+            "ORDER BY created_at DESC LIMIT 3"
+        ).fetchall()
+        active_banners = [dict(r) for r in rows]
+    except Exception as e:
+        log.error("Banner yuklashda xato: %s", e)
+
+    return {
+        "site_name":      Config.SITE_NAME,
+        "user_balance":   user_balance,
+        "active_banners": active_banners,
+    }
 
 # ─── Error handlers ───────────────────────────
 @app.errorhandler(404)

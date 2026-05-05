@@ -219,3 +219,15 @@ def profile():
     }
 
     return render_template("profile.html", user=r2d(u), transactions=txs, stats=stats)
+
+# Bu kodni services/user_service.py ga qo'shing
+# (faylning oxiriga, oxirgi route'dan keyin)
+
+@user_bp.route("/news")
+def news_page():
+    """Foydalanuvchi yangiliklar sahifasi"""
+    db = get_db()
+    rows = r2l(db.execute(
+        "SELECT * FROM news WHERE is_active=1 ORDER BY created_at DESC"
+    ).fetchall())
+    return render_template("news.html", news_list=rows)

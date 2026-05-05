@@ -8,7 +8,7 @@ from utils.logger import log
 balance_bp = Blueprint("balance", __name__)
 
 UPLOAD_FOLDER = os.path.join("static", "uploads", "checks")
-ALLOWED_EXT   = {"png", "jpg", "jpeg", "webp", "gif"}
+ALLOWED_EXT = {"png", "jpg", "jpeg", "webp", "gif", "pdf"}
 CARD_NUMBER   = "5614 6835 8365 4223"
 CARD_OWNER    = "Iskandarov Azizbek"
 ADMIN_TG      = "https://t.me/yakkavazir"   # adminga xabar yuborish

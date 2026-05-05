@@ -391,4 +391,186 @@ def settings():
         flash("Saqlandi!", "success")
     cfg      = {r["key"]: r["value"] for r in db.execute("SELECT * FROM settings").fetchall()}
     prov_bal = provider_balance()
+
     return render_template("admin/settings.html", cfg=cfg, provider_balance=prov_bal)
+# ── ADMIN: CHEK YUKLASH/O'CHIRISH ────────────────────────────────────────────
+import os as _os
+
+ALLOWED_RECEIPT_EXT = {"png", "jpg", "jpeg", "webp", "gif", "pdf"}
+RECEIPT_DIR         = _os.path.join("static", "uploads", "checks")
+
+
+def _allowed_receipt(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_RECEIPT_EXT
+
+
+@admin_bp.route("/payments/<int:did>/upload-receipt", methods=["POST"])
+@admin_required
+def admin_upload_receipt(did):
+    """Admin to'lovga qo'lda chek qo'shadi (yoki almashtiradi)"""
+    db  = get_db()
+    dep = db.execute("SELECT id, tx_hash FROM deposits WHERE id=?", (did,)).fetchone()
+    if not dep:
+        flash("To'lov topilmadi", "error")
+        return redirect(url_for("admin.payments"))
+
+    file = request.files.get("receipt")
+    if not file or not file.filename:
+        flash("Fayl tanlanmadi", "error")
+        return redirect(url_for("admin.payments"))
+
+    if not _allowed_receipt(file.filename):
+        flash("Faqat PNG, JPG, WEBP, GIF, PDF fayllarga ruxsat", "error")
+        return redirect(url_for("admin.payments"))
+
+    # Eski chekni o'chirish (agar bor bo'lsa)
+    old = dep["tx_hash"]
+    if old and old.startswith("/static/"):
+        old_path = old.lstrip("/")
+        if _os.path.isfile(old_path):
+            try: _os.remove(old_path)
+            except: pass
+
+    # Yangi faylni saqlash
+    _os.makedirs(RECEIPT_DIR, exist_ok=True)
+    ext      = file.filename.rsplit(".", 1)[1].lower()
+    filename = f"admin_check_{did}_{int(time.time())}.{ext}"
+    filepath = _os.path.join(RECEIPT_DIR, filename)
+    file.save(filepath)
+
+    check_url = f"/static/uploads/checks/{filename}"
+    db.execute("UPDATE deposits SET tx_hash=? WHERE id=?", (check_url, did))
+    db.commit()
+
+    flash("✅ Chek yuklandi", "success")
+    return redirect(url_for("admin.payments"))
+
+
+@admin_bp.route("/payments/<int:did>/delete-receipt", methods=["POST"])
+@admin_required
+def admin_delete_receipt(did):
+    """Admin chekni o'chiradi"""
+    db  = get_db()
+    dep = db.execute("SELECT id, tx_hash FROM deposits WHERE id=?", (did,)).fetchone()
+    if not dep:
+        return jsonify({"ok": False, "message": "Topilmadi"})
+
+    old = dep["tx_hash"]
+    if old and old.startswith("/static/"):
+        old_path = old.lstrip("/")
+        if _os.path.isfile(old_path):
+            try: _os.remove(old_path)
+            except: pass
+
+    db.execute("UPDATE deposits SET tx_hash=NULL WHERE id=?", (did,))
+    db.commit()
+    return jsonify({"ok": True})
+
+
+@admin_bp.route("/payments/<int:did>/reject", methods=["POST"])
+@admin_required
+def admin_reject_payment(did):
+    """To'lovni rad etish"""
+    db = get_db()
+    db.execute(
+        "UPDATE deposits SET status='rejected' WHERE id=? AND status='pending'",
+        (did,)
+    )
+    db.commit()
+    return jsonify({"ok": True})
+
+
+# ── YANGILIKLAR / REKLAMA ────────────────────────────────────────────────────
+NEWS_IMG_DIR = _os.path.join("static", "uploads", "news")
+ALLOWED_NEWS_IMG = {"png", "jpg", "jpeg", "webp", "gif"}
+
+
+def _allowed_news_img(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_NEWS_IMG
+
+
+@admin_bp.route("/news")
+@admin_required
+def news():
+    db = get_db()
+    rows = r2l(db.execute(
+        "SELECT * FROM news ORDER BY created_at DESC"
+    ).fetchall())
+    return render_template("admin/news.html", news_list=rows)
+
+
+@admin_bp.route("/news/add", methods=["POST"])
+@admin_required
+def news_add():
+    d  = request.form
+    db = get_db()
+
+    # Rasm yuklash (ixtiyoriy)
+    image_url = None
+    img = request.files.get("image")
+    if img and img.filename and _allowed_news_img(img.filename):
+        _os.makedirs(NEWS_IMG_DIR, exist_ok=True)
+        ext      = img.filename.rsplit(".", 1)[1].lower()
+        filename = f"news_{int(time.time())}.{ext}"
+        img.save(_os.path.join(NEWS_IMG_DIR, filename))
+        image_url = f"/static/uploads/news/{filename}"
+
+    db.execute(
+        "INSERT INTO news (title, description, image_url, link_url, button_text, show_banner, is_active) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (
+            d["title"].strip(),
+            d["description"].strip(),
+            image_url,
+            d.get("link_url", "").strip() or None,
+            d.get("button_text", "").strip() or None,
+            int(d.get("show_banner", 0)),
+            1,
+        )
+    )
+    db.commit()
+    flash("✅ Yangilik qo'shildi", "success")
+    return redirect(url_for("admin.news"))
+
+
+@admin_bp.route("/news/<int:nid>/toggle", methods=["POST"])
+@admin_required
+def news_toggle(nid):
+    """Aktiv/Noaktiv qilish"""
+    db = get_db()
+    n  = db.execute("SELECT is_active FROM news WHERE id=?", (nid,)).fetchone()
+    if not n:
+        return jsonify({"ok": False})
+    new_val = 0 if n["is_active"] else 1
+    db.execute("UPDATE news SET is_active=? WHERE id=?", (new_val, nid))
+    db.commit()
+    return jsonify({"ok": True, "is_active": new_val})
+
+
+@admin_bp.route("/news/<int:nid>/banner-toggle", methods=["POST"])
+@admin_required
+def news_banner_toggle(nid):
+    """Banner ko'rinishini yoqish/o'chirish"""
+    db = get_db()
+    n  = db.execute("SELECT show_banner FROM news WHERE id=?", (nid,)).fetchone()
+    if not n:
+        return jsonify({"ok": False})
+    new_val = 0 if n["show_banner"] else 1
+    db.execute("UPDATE news SET show_banner=? WHERE id=?", (new_val, nid))
+    db.commit()
+    return jsonify({"ok": True, "show_banner": new_val})
+
+
+@admin_bp.route("/news/<int:nid>/delete", methods=["POST"])
+@admin_required
+def news_delete(nid):
+    db = get_db()
+    n  = db.execute("SELECT image_url FROM news WHERE id=?", (nid,)).fetchone()
+    if n and n["image_url"] and n["image_url"].startswith("/static/"):
+        path = n["image_url"].lstrip("/")
+        if _os.path.isfile(path):
+            try: _os.remove(path)
+            except: pass
+    db.execute("DELETE FROM news WHERE id=?", (nid,))
+    db.commit()
+    return jsonify({"ok": True})
