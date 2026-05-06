@@ -7,6 +7,7 @@ from database.db import get_db, close_db
 from database.migrate import init_db
 from utils.logger import log
 from services.balance_service import balance_bp
+
 # ─── App ──────────────────────────────────────
 app = Flask(__name__,
             template_folder="templates",
@@ -35,6 +36,14 @@ app.register_blueprint(admin_bp)
 app.register_blueprint(api_bp)
 app.register_blueprint(support_bp)
 app.register_blueprint(balance_bp)
+
+# ─── DB initialization (Render va lokal uchun) ─────────
+try:
+    init_db()
+    log.info("Database tayyor")
+except Exception as e:
+    log.error("init_db xato: %s", e)
+
 # ─── Payment webhooks ─────────────────────────
 from flask import request, jsonify, render_template
 
@@ -182,11 +191,15 @@ def start_auto_sync():
     log.info("Auto-sync ishga tushdi (har 5 daqiqa)")
 
 
-# ─── Main ─────────────────────────────────────
-if __name__ == "__main__":
-    init_db()
+# ─── Auto-sync — Render va lokalda ham ishlasin ───
+try:
     start_auto_sync()
+except Exception as e:
+    log.error("Auto-sync ishga tushmadi: %s", e)
 
+
+# ─── Main (faqat lokalda ishlatiladi) ─────────
+if __name__ == "__main__":
     print("=" * 58)
     print("  📊  SMMPanel.uz — ishga tushmoqda")
     print("=" * 58)
